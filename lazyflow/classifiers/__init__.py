@@ -12,6 +12,9 @@ from .parallelVigraRfLazyflowClassifier import (
 )
 from .sklearnLazyflowClassifier import SklearnLazyflowClassifier, SklearnLazyflowClassifierFactory
 
+# VIB deep learning classifier
+from .deepLearningLazyflowClassifier import DeepLearningLazyflowClassifier, DeepLearningLazyflowClassifierFactory
+
 try:
     from .tiktorchLazyflowClassifier import TikTorchLazyflowClassifier, TikTorchLazyflowClassifierFactory
 except ImportError:
