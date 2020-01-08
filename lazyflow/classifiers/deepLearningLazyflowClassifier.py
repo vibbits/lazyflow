@@ -138,25 +138,26 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
         Implicitly assumes that feature_image is includes the surrounding HALO!
         roi must be chosen accordingly
         """
-        taskid = random.randint(1, 1000000)  # hack. Due to concurrency output of multiple tasks gets mixed. By adding the taskid to our output we can match the correct snippets of output.
 
         num_channels = len(self.known_classes)
 
-        logger.debug(f"taskid={taskid} DeepLearningLazyFlowClassifier.predict_probabilities_pixelwise(): feature_image.shape={feature_image.shape} roi={list(roi)} known_classes={self.known_classes} axistags={''.join(axistags.keys())}")
+        logger.debug(f"DeepLearningLazyFlowClassifier.predict_probabilities_pixelwise(): feature_image.shape={feature_image.shape} roi={list(roi)} known_classes={self.known_classes} axistags={''.join(axistags.keys())}")
 
         expected_shape = [stop - start for start, stop in zip(roi[0], roi[1])] + [num_channels]  # CHECK, what does this do?
 
+        # In our examples so far, feature_image is (num z, height, width, num channels = 1) in our examples; however this could be different if axistags != zyxc
         # note: the given 'roi' parameter indicates the required shape of the result
         # FIXME: need to take ROI into account?
         assert num_channels == 2, 'VibDeepLearningLazyFlowClassifier is a binary classifier'
-        result_shape = feature_image.shape[0:3]   #  feature_image is (num z, height, width, num feature channels)  I think; for now we're building a hack, so ignore num feature channels
+        result_shape = feature_image.shape[0:3]
         result_shape = (*result_shape, num_channels)
         result = numpy.zeros(result_shape, dtype=float)
 
         input_data = feature_image[:, :, :, 0]  # shape should be (num z slices, image height, image width)
         patch_size = (input_data.shape[1], input_data.shape[2])  # CHECKME ask joris: how to pick patch size   # FIXME - what are restrictions on patch size? does it need to be square? rectangular? power of 2?
-        if (patch_size[0] % 64 == 0) and (patch_size[1] % 64 == 0):
-            logger.debug(f"taskid={taskid} expected_shape={expected_shape}; calling joris net segment: input_data shape={input_data.shape} min={input_data.min():.2f}, max={input_data.max():.2f}, mean={input_data.mean():.2f}")
+        batch_size = input_data.shape[0]
+        if (patch_size[0] % 64 == 0) and (patch_size[1] % 64 == 0):  # CHECKME: do patches need to be square? or is rectangular also possible?
+            logger.debug(f"neuralnets.segment: input_data shape={input_data.shape} min={input_data.min():.2f}, max={input_data.max():.2f}, mean={input_data.mean():.2f}; patch_size={patch_size} batch_size={batch_size}")
 
             try:
                 # Ask neural net for class probability.
@@ -170,9 +171,9 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
             # but Ilastik expects a probability for each class. So generate that desired output.
             result[:, :, :, 1] = segmented_data
             result[:, :, :, 0] = 1.0 - result[:, :, :, 1]
-            logger.debug(f"taskid={taskid} Stats of joris net: shape={segmented_data.shape} min={segmented_data.min():.2f}, max={segmented_data.max():.2f}, mean={segmented_data.mean():.2f}; Stats of result: shape={result.shape} min={result.min():.2f}, max={result.max():.2f}, mean={result.mean():.2f}")
+            logger.debug(f"neuralnets.segment: segmented_data shape={segmented_data.shape} min={segmented_data.min():.2f}, max={segmented_data.max():.2f}, mean={segmented_data.mean():.2f}; result shape={result.shape}")
         else:
-            logger.debug(f'taskid={taskid} SKIPPED PATCH WITH ANNOYING SIZE; expected_shape={expected_shape} input_data shape={input_data.shape}')
+            logger.debug(f'SKIPPED PATCH WITH ANNOYING SIZE; expected_shape={expected_shape} input_data shape={input_data.shape}')
 
         return result
 
