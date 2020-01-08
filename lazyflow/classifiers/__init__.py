@@ -13,7 +13,11 @@ from .parallelVigraRfLazyflowClassifier import (
 from .sklearnLazyflowClassifier import SklearnLazyflowClassifier, SklearnLazyflowClassifierFactory
 
 # VIB deep learning classifier
-from .deepLearningLazyflowClassifier import DeepLearningLazyflowClassifier #, DeepLearningLazyflowClassifierFactory
+try:
+    from .deepLearningLazyflowClassifier import DeepLearningLazyflowClassifier
+except ImportError:
+    import warnings
+    warnings.warn("init: Could not import VIB deep learning classifier")
 
 try:
     from .tiktorchLazyflowClassifier import TikTorchLazyflowClassifier, TikTorchLazyflowClassifierFactory
