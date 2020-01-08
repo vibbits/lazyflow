@@ -143,7 +143,7 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
 
         logger.debug(f"DeepLearningLazyFlowClassifier.predict_probabilities_pixelwise(): feature_image.shape={feature_image.shape} roi={list(roi)} known_classes={self.known_classes} axistags={''.join(axistags.keys())}")
 
-        expected_shape = [stop - start for start, stop in zip(roi[0], roi[1])] + [num_channels]  # CHECK, what does this do?
+        expected_shape = [stop - start for start, stop in zip(roi[0], roi[1])] + [num_channels]
 
         # In our examples so far, feature_image is (num z, height, width, num channels = 1) in our examples; however this could be different if axistags != zyxc
         # note: the given 'roi' parameter indicates the required shape of the result
@@ -154,14 +154,14 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
         result = numpy.zeros(result_shape, dtype=float)
 
         input_data = feature_image[:, :, :, 0]  # shape should be (num z slices, image height, image width)
-        patch_size = (input_data.shape[1], input_data.shape[2])  # CHECKME ask joris: how to pick patch size   # FIXME - what are restrictions on patch size? does it need to be square? rectangular? power of 2?
+        patch_size = (input_data.shape[1], input_data.shape[2])
         batch_size = input_data.shape[0]
-        if (patch_size[0] % 64 == 0) and (patch_size[1] % 64 == 0):  # CHECKME: do patches need to be square? or is rectangular also possible?
+        if (patch_size[0] % 64 == 0) and (patch_size[1] % 64 == 0):  # CHECKME: do patches need to be square? or is rectangular also possible? does it need to be a power of 2?
             logger.debug(f"neuralnets.segment: input_data shape={input_data.shape} min={input_data.min():.2f}, max={input_data.max():.2f}, mean={input_data.mean():.2f}; patch_size={patch_size} batch_size={batch_size}")
 
             try:
                 # Ask neural net for class probability.
-                segmented_data = segment(input_data, self._net, patch_size, batch_size=1, step_size=None, train=False)
+                segmented_data = segment(input_data, self._net, patch_size, batch_size, step_size=None, train=False)
             except Exception as ex:
                 # An exception occurred. A CUDA out of memory error, for example.
                 logger.critical(ex)
