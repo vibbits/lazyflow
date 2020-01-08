@@ -6,12 +6,10 @@ from builtins import range
 import pickle as pickle
 import tempfile
 
-
 import numpy
-import vigra
 import random
 
-from .lazyflowClassifier import LazyflowPixelwiseClassifierABC, LazyflowPixelwiseClassifierFactoryABC
+from .lazyflowClassifier import LazyflowPixelwiseClassifierABC
 from lazyflow.operators.opReorderAxes import OpReorderAxes
 from lazyflow.graph import Graph
 from lazyflow.roi import roiToSlice
@@ -22,8 +20,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 import sys
-sys.path.append(r'E:\git\bits\bioimaging\deep_segment\neuralnets')  # FIXME - can we avoid this?
-print(f'sys.path={sys.path}')
+
 from neuralnets.util.tools import load_net
 from neuralnets.util.validation import segment
 
@@ -34,82 +31,10 @@ from neuralnets.util.validation import segment
 
 VIB_MODEL_FILE_PATH = r"E:\git\bits\bioimaging\deep_segment\pretrained_models\dense\epfl_vnc_mira\unet_multi_domain\best_checkpoint.pytorch"  # Path to pre-trained model
 
-# class DeepLearningLazyflowClassifierFactory(LazyflowPixelwiseClassifierFactoryABC):
-#     # The version is used to determine compatibility of pickled classifier factories.
-#     # You must bump this if any instance members are added/removed/renamed.
-#     VERSION = 1
-#
-#     def __init__(self, *args, **kwargs):
-#         self._args = args
-#         self._kwargs = kwargs
-#
-#         logger.debug("DeepLearningLazyflowClassifierFactory __init__()")
-#
-#         print(self._args)
-#
-#         # FIXME: hard coded file path to a trained and pickled pytorch network!
-#         self._filename = None  # self._args[0]
-#         self._loaded_net = None
-#
-#     def create_and_train_pixelwise(self, feature_images, label_images, axistags=None, feature_names=None):
-#         self._filename = VIB_MODEL_FILE_PATH  # was: PYTORCH_MODEL_FILE_PATH
-#         logger.debug(f"DeepLearningLazyflowClassifierFactory create_and_train_pixelwise() - actually just loading network from {self._filename}")
-#
-#         # Save for future reference
-#         # known_labels = numpy.sort(vigra.analysis.unique(y))
-#
-#         # TODO: check whether loaded network has the same number of classes as specified in ilastik!
-#         self._loaded_net = load_net(self._filename)
-#         logger.info(self.description)
-#
-#         # logger.info("OOB during training: {}".format( oob ))
-#         return DeepLearningLazyflowClassifierFactory(self._loaded_net, self._filename)
-#
-#     def get_halo_shape(self, data_axes="zyxc"):
-#         logger.debug(f"DeepLearningLazyflowClassifierFactory get_halo_shape()")
-#         # return (z_halo, y_halo, x_halo, 0)
-#         if len(data_axes) == 4:
-#             return (0, 32, 32, 0)
-#         # FIXME: assuming 'yxc' !
-#         elif len(data_axes) == 3:
-#             return (32, 32, 0)
-#
-#     @property
-#     def description(self):
-#         logger.debug(f"DeepLearningLazyflowClassifierFactory description()")
-#         if self._loaded_net:
-#             return (
-#                 f"network loaded from {self._filename} with "
-#                 f"input channels = {self._loaded_net.in_channels} and "
-#                 f"output channels = {self._loaded_net.out_channels}"
-#             )
-#         else:
-#             return f"network loading from {self._filename} failed"
-#
-#     def estimated_ram_usage_per_requested_predictionchannel(self):
-#         # FIXME: compute from model size somehow??
-#         return numpy.inf
-#
-#     def __eq__(self, other):
-#         return isinstance(other, type(self)) and self._args == other._args and self._kwargs == other._kwargs
-#
-#     def __ne__(self, other):
-#         return not self.__eq__(other)
-#
-#
-# assert issubclass(DeepLearningLazyflowClassifierFactory, LazyflowPixelwiseClassifierFactoryABC)
-
-
 class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
     # HDF5_GROUP_FILENAME = "pytorch_network_path"
 
     def __init__(self, net, filename=None, HALO_SIZE=32, BATCH_SIZE=3):
-        """
-        Args:
-            net (xxx): xxx object to be loaded into this
-              classifier object
-            filename (None, optional): Save file name for future reference
-        """
         logger.debug(f"DeepLearningLazyflowClassifier __init__ net={net} filename={filename} HALO_SIZE={HALO_SIZE} BATCH_SIZE={BATCH_SIZE}")
         self._filename = filename
         if self._filename is None:
@@ -123,17 +48,12 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
             # tiktorch_net = TikTorch.unserialize(self._filename)
             net = load_net(self._filename)
 
-        # print (self._filename)
-
-        # assert tiktorch_net.return_hypercolumns == False
-        # print('blah')
-
         self._net = net
 
         # self._opReorderAxes = OpReorderAxes(graph=Graph())
         # self._opReorderAxes.AxisOrder.setValue("zcyx")
 
-    def predict_probabilities_pixelwise(self, feature_image, roi, axistags=None):
+    def predict_probabilities_pixelwise(self, feature_image, roi, axistags=None):  # CHECKME: where does this get called - how do we see that feature_image is actually just the original image?
         """
         Implicitly assumes that feature_image is includes the surrounding HALO!
         roi must be chosen accordingly
@@ -334,15 +254,14 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
 
     @property
     def known_classes(self):
-        # return list(range(self._tiktorch_net.expected_output_shape[0]))
         return list(range(self._net.out_channels))
 
     @property
     def feature_count(self):
-        # return self._tiktorch_net.expected_input_shape[0]
         return self._net.in_channels
 
     def get_halo_shape(self, data_axes="zyxc"):
+        logger.debug("DeepLearningLazyFlowClassifier.get_halo_shape() data_axes={data_axes}")
         if len(data_axes) == 4:
             return (0, self.HALO_SIZE, self.HALO_SIZE, 0)
         # FIXME: assuming 'yxc' !
