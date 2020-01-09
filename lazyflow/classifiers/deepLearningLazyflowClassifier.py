@@ -24,6 +24,8 @@ import sys
 from neuralnets.util.tools import load_net
 from neuralnets.util.validation import segment
 
+from skimage.external import tifffile
+
 
 # FIXME: hard coded file path to a trained and pickled pytorch network!
 # PYTORCH_MODEL_FILE_PATH = '/Users/chaubold/opt/miniconda/envs/ilastik-py3/src/tiktorch/test3.nn'
@@ -50,6 +52,8 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
 
         self._net = net
 
+        self._image_nr = 0  # for debugging only, counts the number of tiles that we were fed for prediction and saved to disk for analysis
+
         # self._opReorderAxes = OpReorderAxes(graph=Graph())
         # self._opReorderAxes.AxisOrder.setValue("zcyx")
 
@@ -59,9 +63,12 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
         roi must be chosen accordingly
         """
 
+        #tifffile.imsave(f"c:\\users\\frankvn\\development\\ilastik_vib_{self._image_nr}.tif", feature_image.astype("uint16"))
+        self._image_nr += 1
+
         num_channels = len(self.known_classes)
 
-        logger.debug(f"DeepLearningLazyFlowClassifier.predict_probabilities_pixelwise(): feature_image.shape={feature_image.shape} roi={list(roi)} known_classes={self.known_classes} axistags={''.join(axistags.keys())}")
+        logger.debug(f"DeepLearningLazyFlowClassifier.predict_probabilities_pixelwise(): nr={self._image_nr} feature_image.shape={feature_image.shape} roi={list(roi)} known_classes={self.known_classes} axistags={''.join(axistags.keys())}")
 
         expected_shape = [stop - start for start, stop in zip(roi[0], roi[1])] + [num_channels]
 
@@ -74,7 +81,7 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
         result = numpy.zeros(result_shape, dtype=float)
 
         input_data = feature_image[:, :, :, 0]  # shape should be (num z slices, image height, image width)
-        patch_size = (input_data.shape[1], input_data.shape[2])
+        patch_size = (512, 512) # (input_data.shape[1], input_data.shape[2])
         batch_size = input_data.shape[0]
         if (patch_size[0] % 64 == 0) and (patch_size[1] % 64 == 0):  # CHECKME: do patches need to be square? or is rectangular also possible? does it need to be a power of 2?
             logger.debug(f"neuralnets.segment: input_data shape={input_data.shape} min={input_data.min():.2f}, max={input_data.max():.2f}, mean={input_data.mean():.2f}; patch_size={patch_size} batch_size={batch_size}")
