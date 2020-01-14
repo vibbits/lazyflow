@@ -10,7 +10,6 @@ import numpy
 import logging
 import sys
 
-# import GPUtil
 
 
 from .lazyflowClassifier import LazyflowPixelwiseClassifierABC
@@ -18,70 +17,83 @@ from .lazyflowClassifier import LazyflowPixelwiseClassifierABC
 from neuralnets.util.tools import load_net
 from neuralnets.util.validation import segment
 
-from skimage.external import tifffile
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
 class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
 
-    def __init__(self, net, filename=None, batch_size=1, window_size=256):
+    def __init__(self, net, filename, batch_size=1, window_size=256):
+        # If 'net' is not None, then it will be used. Otherwise, the neural network is loaded from 'filename'.
         logger.debug(f"DeepLearningLazyflowClassifier __init__ net={net} filename={filename} window_size={window_size} batch_size={batch_size}")
         # GPUtil.showUtilization()
-
-        self._filename = filename
-        if self._filename is None:
-            self._filename = ""
 
         self.batch_size = batch_size
         self.window_size = (window_size, window_size)
 
-        if net is None:  # CHECKME: does this ever happen??
-            print(self._filename)
-            # tiktorch_net = TikTorch.unserialize(self._filename)
-            net = load_net(self._filename)
+        if filename is None:
+            self._filename = ""
+        else:
+            self._filename = filename
 
-        self._net = net
+        if net is None:
+            self._net = load_net(self._filename)
+        else:
+            self._net = net
 
-        self._image_nr = 0  # for debugging only, counts the number of tiles that we were fed for prediction and saved to disk for analysis
+    def predict_probabilities_pixelwise(self, image, roi, axistags=None):
+        # CHECKME: where does predict_probabilities_pixelwise() get called?   From OpPixelwiseClassifierPredict._calculate_probabilities(roi), called from OpBaseClassifierPredict.execute(slot, subindex, roi, result)
+        # Where do we see that 'image' here is actually just the original image and not feature images calculated from it?
 
-    def predict_probabilities_pixelwise(self, image, roi, axistags=None):  # CHECKME: where does this get called - how do we see that image is actually just the original image?
+        # Check that the neural network expects grayscale images.
+        assert self._net.in_channels == 1
 
-        num_channels = len(self.known_classes)
-        # expected_shape = [stop - start for start, stop in zip(roi[0], roi[1])] + [num_channels]
+        # We asked Ilastik (by setting a specific 'blockshape' on 'opDLclass' in dlClassGui) to feed us images at the
+        # full width and height (but possibly fewer z-slices than in the full image stack).
+        # We do not want a halo either. Check that the roi agrees with this assumption.
+        # So the ROI should be [[z_start 0 0], [z_end image_height image_width]].
+        assert (roi[0][1] == 0) and (roi[0][2] == 0)
+        assert (roi[1][1] == image.shape[1]) and (roi[1][2] == image.shape[2])
 
-        # TODO: check that ROI starts at 0,0,0 and is as large as the input image
-        # TODO: check that axistags is zyxc or tyxc; for other tag organizations we could use OpReorderAxes (see tiktorch lazyfloz classifier)
-        # TODO: check that num_channels == 1 (or that it is identical to the # input channels of the net)
+        # The number of z-planes we are given is normally equal to the batch size that the user requested, except for
+        # the last batch since there may be fewer z-planes left.
+        assert image.shape[0] <= self.batch_size
 
-        #tifffile.imsave(f"c:\\users\\frankvn\\development\\ilastik_vib_{self._image_nr}.tif", image.astype("uint16"))
-        self._image_nr += 1
+        # Check that axistags is zyxc or tyxc. For other data organizations we could actually use OpReorderAxes
+        # (see tiktorch lazyflow classifier) but we leave that for future work...
+        axistags_str = ''.join(axistags.keys())
+        if axistags_str != 'zyxc' and axistags_str != 'tyxc':
+            logger.critical(f"The image axes are '{axistags_str}' but we only support 'zyxc' or 'tyxc'. "
+                            "Please reorder the axes in Ilastik after loading the image.")
+            return numpy.zeros((*image.shape[0:3], 2))
 
+        # logger.debug(f"DeepLearningLazyFlowClassifier.predict_probabilities_pixelwise(): image.shape={image.shape} roi={list(roi)} axistags={''.join(axistags.keys())}")
 
-        logger.debug(f"DeepLearningLazyFlowClassifier.predict_probabilities_pixelwise(): nr={self._image_nr} image.shape={image.shape} roi={list(roi)} known_classes={self.known_classes} axistags={''.join(axistags.keys())}")
+        # Here 'image' is (num z, height, width, num channels = 1). We just reshape it to 'input_data' of shape
+        # (num z, height, width) since that is what the neural network expects.
+        input_data = image[:, :, :, 0]
 
-        # In our examples so far, image is (num z, height, width, num channels = 1) in our examples; however this could be different if axistags != zyxc
+        # logger.debug(f"neuralnets.segment: input_data shape={input_data.shape} min={input_data.min():.2f}, max={input_data.max():.2f}, mean={input_data.mean():.2f}; window_size={self.window_size} batch_size={self.batch_size}")
 
-        input_data = image[:, :, :, 0]  # shape should be (num z slices, image height, image width)
-        # Note: we expect input_data.shape[0] == self.BATCH_SIZE, except in case # slices in the full image stack is not a multiple of self.BATCH_SIZE (because of the blockshape setting in opDLclass.py)
-
-        logger.debug(f"neuralnets.segment: input_data shape={input_data.shape} min={input_data.min():.2f}, max={input_data.max():.2f}, mean={input_data.mean():.2f}; window_size={self.window_size} batch_size={self.batch_size}")
-        # GPUtil.showUtilization()
         try:
-            # Ask neural net for class probability.
+            # Ask neural net for class probability (for each z-slice in input_data)
             segmented_data = segment(input_data, self._net, self.window_size, self.batch_size, step_size=None, train=False)
         except Exception as ex:
-            # An exception occurred. A CUDA out of memory error, for example.
+            # An exception occurred. This could be a CUDA out of memory error, for example.
             logger.critical(ex)
-            return None  # FIXME: return a result array with all zeros instead. Or is None handled correctly on the receiving end?
+            return numpy.zeros((*image.shape[0:3], 2))
 
         # The neural net returned only the probability a pixel is "foreground" (e.g. part of a mitochondrion).
         # but Ilastik expects a probability for each class. So generate that desired output.
-        assert num_channels == 2, 'VibDeepLearningLazyFlowClassifier is a binary classifier'
-        result = numpy.stack((1-segmented_data, segmented_data), axis=-1)  # this has shape (z, y, x, 2), the last dimension being background/foreground class
-        logger.debug(f"neuralnets.segment: segmented_data shape={segmented_data.shape} min={segmented_data.min():.2f}, max={segmented_data.max():.2f}, mean={segmented_data.mean():.2f}; result shape={result.shape}")
-        # GPUtil.showUtilization()
+        num_classes = len(self.known_classes)
+        assert num_classes == 2, 'VibDeepLearningLazyFlowClassifier is a binary classifier: background/foreground'
+
+        # The desired output is the probability for each of the two pixel classes (foreground/background).
+        # Build it from the foreground probability we got from the neural network.
+        # 'result' will have shape (z, y, x, 2), the last dimension being background/foreground class
+        result = numpy.stack((1-segmented_data, segmented_data), axis=-1)
+
+        # logger.debug(f"neuralnets.segment: segmented_data shape={segmented_data.shape} min={segmented_data.min():.2f}, max={segmented_data.max():.2f}, mean={segmented_data.mean():.2f}; result shape={result.shape}")
 
         return result
 
@@ -101,7 +113,7 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
             return (0, 0, 0)
 
     def serialize_hdf5(self, h5py_group):
-        logger.debug("DeepLearningLazyFlowClassifier.serialize_hdf5() - skipped!!")
+        logger.warning("DeepLearningLazyFlowClassifier.serialize_hdf5() - skipped!!")
         # logger.debug("Serializing")
         # h5py_group[self.HDF5_GROUP_FILENAME] = self._filename
         # h5py_group["pickled_type"] = pickle.dumps(type(self), 0)
@@ -114,7 +126,7 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
 
     @classmethod
     def deserialize_hdf5(cls, h5py_group):
-        logger.debug("DeepLearningLazyFlowClassifier.deserialize_hdf5() - skipped!!")
+        logger.warning("DeepLearningLazyFlowClassifier.deserialize_hdf5() - skipped!!")
         # # TODO: load from HDF5 instead of hard coded path!
         # logger.debug("Deserializing")
         # # HACK:
