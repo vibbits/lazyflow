@@ -42,8 +42,10 @@ class DeepLearningLazyflowClassifier(LazyflowPixelwiseClassifierABC):
             self._net = net
 
     def predict_probabilities_pixelwise(self, image, roi, axistags=None):
-        # CHECKME: where does predict_probabilities_pixelwise() get called?   From OpPixelwiseClassifierPredict._calculate_probabilities(roi), called from OpBaseClassifierPredict.execute(slot, subindex, roi, result)
-        # Where do we see that 'image' here is actually just the original image and not feature images calculated from it?
+        # Note 1: this function gets called from OpPixelwiseClassifierPredict._calculate_probabilities(roi), which is
+        # called from OpBaseClassifierPredict.execute(slot, subindex, roi, result).
+        # Note 2: image is the original image, *not* features calculated from it. This can be seen in the
+        # connectLane() function in dlClassificationWorkflow.py: opDLclassify.InputImage.connect(opData.Image)
 
         # Check that the neural network expects grayscale images.
         assert self._net.in_channels == 1
