@@ -247,7 +247,7 @@ class RoiRequestBatch(object):
                 # Report progress (if possible)
                 if self._totalVolume is not None:
                     self._processedVolume += numpy.prod(numpy.subtract(roi[1], roi[0]))
-                    progress = 100 * self._processedVolume // self._totalVolume
+                    progress = int(100 * float(self._processedVolume) / float(self._totalVolume))
                     self.progressSignal(progress)
 
                 logger.debug("Request completed for roi: {}".format(roi))
